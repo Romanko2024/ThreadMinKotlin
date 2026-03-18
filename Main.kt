@@ -1,16 +1,16 @@
 import kotlin.random.Random
 
 const val DIM = 1_000_000_000
-const val THREAD_NUM = 4
+const val THREAD_NUM = 8
 val arr = IntArray(DIM)
 var globalMin = Int.MAX_VALUE
 var globalIndex = -1
 val lock = Any()
+var finished = 0
 
 fun main() {
 
     initArray()
-    val threads = ArrayList<Thread>()
     val startTime = System.currentTimeMillis()
     val partSize = DIM / THREAD_NUM
 
@@ -18,7 +18,7 @@ fun main() {
         val start = i * partSize
         val end = if (i == THREAD_NUM - 1) DIM else start + partSize
 
-        val thread = Thread {
+        Thread {
             var localMin = Int.MAX_VALUE
             var localIndex = -1
 
@@ -34,18 +34,16 @@ fun main() {
                     globalMin = localMin
                     globalIndex = localIndex
                 }
+                finished++
+                if (finished == THREAD_NUM) {
+                    val endTime = System.currentTimeMillis()
+                    println("Minimum element: $globalMin")
+                    println("Index: $globalIndex")
+                    println("Execution time: ${endTime - startTime} ms")
+                }
             }
-        }
-        threads.add(thread)
-        thread.start()
+        }.start()
     }
-    for (t in threads) {
-        t.join()
-    }
-    val endTime = System.currentTimeMillis()
-    println("Minimum element: $globalMin")
-    println("Index: $globalIndex")
-    println("Execution time: ${endTime - startTime} ms")
 }
 
 fun initArray() {
