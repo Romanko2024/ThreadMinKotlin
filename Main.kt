@@ -1,56 +1,97 @@
 import kotlin.random.Random
 
-const val DIM = 1_000_000_000
-const val THREAD_NUM = 8
-val arr = IntArray(DIM)
-var globalMin = Int.MAX_VALUE
-var globalIndex = -1
-val lock = Any()
-var finished = 0
+class ArrClass(private val dim: Int, private val threadNum: Int) {
+    val arr = IntArray(dim)
+    private var globalMin = Int.MAX_VALUE
+    private var globalIndex = -1
+    private var threadCount = 0
+    @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
+    private val monitor = Object()
 
-fun main() {
+    init {
+        for (i in 0 until dim) {
+            arr[i] = Random.nextInt(1, 1_000_000)
+        }
+        val index = Random.nextInt(dim)
+        arr[index] = -100
+        println("Negative element inserted at index: $index")
+    }
 
-    initArray()
-    val startTime = System.currentTimeMillis()
-    val partSize = DIM / THREAD_NUM
-
-    for (i in 0 until THREAD_NUM) {
-        val start = i * partSize
-        val end = if (i == THREAD_NUM - 1) DIM else start + partSize
-
-        Thread {
-            var localMin = Int.MAX_VALUE
-            var localIndex = -1
-
-            for (j in start until end) {
-                if (arr[j] < localMin) {
-                    localMin = arr[j]
-                    localIndex = j
+    fun partMin(startIndex: Int, finishIndex: Int): Pair<Int, Int> {
+        var localMin = Int.MAX_VALUE
+        var localIndex = -1
+        for (i in startIndex until finishIndex) {
+            if (arr[i] < localMin) {
+                localMin = arr[i]
+                localIndex = i
+            }
+        }
+        return Pair(localMin, localIndex)
+    }
+    fun collectMin(value: Int, index: Int) {
+        synchronized(monitor) {
+            if (value < globalMin) {
+                globalMin = value
+                globalIndex = index
+            }
+        }
+    }
+    fun incThreadCount() {
+        synchronized(monitor) {
+            threadCount++
+            monitor.notify()
+        }
+    }
+    fun getMin(): Pair<Int, Int> {
+        synchronized(monitor) {
+            while (threadCount < threadNum) {
+                try {
+                    monitor.wait()
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return Pair(globalMin, globalIndex)
                 }
             }
+            return Pair(globalMin, globalIndex)
+        }
+    }
+    fun threadMin(): Pair<Int, Int> {
+        val threads = Array(threadNum) { i ->
+            val partSize = dim / threadNum
+            val start = i * partSize
+            val end = if (i == threadNum - 1) dim else start + partSize
+            ThreadMin(start, end, this)
+        }
 
-            synchronized(lock) {
-                if (localMin < globalMin) {
-                    globalMin = localMin
-                    globalIndex = localIndex
-                }
-                finished++
-                if (finished == THREAD_NUM) {
-                    val endTime = System.currentTimeMillis()
-                    println("Minimum element: $globalMin")
-                    println("Index: $globalIndex")
-                    println("Execution time: ${endTime - startTime} ms")
-                }
-            }
-        }.start()
+        val startTime = System.currentTimeMillis()
+        threads.forEach { it.start() }
+        val result = getMin()
+        val endTime = System.currentTimeMillis()
+        println("Execution time: ${endTime - startTime} ms")
+
+        return result
     }
 }
 
-fun initArray() {
-    for (i in 0 until DIM) {
-        arr[i] = Random.nextInt(1, 1_000_000)
+class ThreadMin(
+    private val startIndex: Int,
+    private val finishIndex: Int,
+    private val arrClass: ArrClass
+) : Thread() {
+
+    override fun run() {
+        val (min, index) = arrClass.partMin(startIndex, finishIndex)
+        arrClass.collectMin(min, index)
+        arrClass.incThreadCount()
     }
-    val index = Random.nextInt(DIM)
-    arr[index] = -100
-    println("Negative element inserted at index: $index")
+}
+
+fun main() {
+    val dim = 1_000_000_000
+    val threadNum = 20
+
+    val arrClass = ArrClass(dim, threadNum)
+    val result = arrClass.threadMin()
+
+    println("min: ${result.first} index: ${result.second}")
 }
